@@ -1,12 +1,23 @@
 // providers/OllamaProvider.cpp
 #include "OllamaProvider.h"
-#include <NetEndpoint.h>
-#include <NetBuffer.h>
-#include "external/json.hpp"
+
+#include <HttpSession.h>
+#include <HttpRequest.h>
+#include <HttpResult.h>
+#include <HttpFields.h>
+#include <Url.h>
+
+#include <memory>
 #include <stdlib.h>
+
+#include "ChatView.h"
+#include "SettingsManager.h"
+#include "external/json.hpp"
 #include "SettingsManager.h"
 #include "ChatMessage.h"
 #include "ChatView.h"
+
+using namespace BPrivate::Network;
 
 // Request thread struct
 struct RequestThreadData {
@@ -145,17 +156,13 @@ int32 OllamaProvider::_RequestThreadFunc(void* data)
     BMessenger* messenger = threadData->messenger;
     bool* cancelFlag = threadData->cancelFlag;
 
-    // Build the request body as JSON
+    // Prepare request body
     using json = nlohmann::json;
-
     json requestBody;
     requestBody["model"] = model.String();
-    requestBody["prompt"] = threadData->message.String();
-    requestBody["stream"] = false;
+    requestBody["messages"] = json::array();
 
-    // Build messages array from history for chat completion
-    json messages = json::array();
-
+    // Add history messages
     for (int32 i = 0; i < threadData->history.CountItems(); i++) {
         ChatMessage* msg = threadData->history.ItemAt(i);
 
@@ -165,170 +172,75 @@ int32 OllamaProvider::_RequestThreadFunc(void* data)
             case MESSAGE_ROLE_USER:
                 messageObj["role"] = "user";
                 break;
-
             case MESSAGE_ROLE_ASSISTANT:
                 messageObj["role"] = "assistant";
                 break;
-
             case MESSAGE_ROLE_SYSTEM:
                 messageObj["role"] = "system";
                 break;
         }
 
         messageObj["content"] = msg->Content().String();
-        messages.push_back(messageObj);
+        requestBody["messages"].push_back(messageObj);
     }
 
     // Add current message
     json userMsg;
     userMsg["role"] = "user";
     userMsg["content"] = threadData->message.String();
-    messages.push_back(userMsg);
+    requestBody["messages"].push_back(userMsg);
 
-    requestBody["messages"] = messages;
+    // Convert JSON to string
+    std::string requestBodyStr = requestBody.dump();
 
-    // Convert to string
-    BString requestBodyStr = requestBody.dump().c_str();
+    // Create URL
+    BUrl url(apiBase.String());
+    url.SetPath("/api/chat");
 
-    // Parse API base to extract host, port, and path
-    BString host, path;
-    int port = 80;  // Default HTTP port for Ollama
+    // Prepare HTTP request
+    BHttpRequest request(url);
+    request.SetMethod(BHttpMethod::Post);
 
-    if (apiBase.StartsWith("https://")) {
-        host = apiBase.String() + 8;  // Skip "https://"
-        port = 443;  // HTTPS port
-    } else if (apiBase.StartsWith("http://")) {
-        host = apiBase.String() + 7;  // Skip "http://"
-    } else {
-        host = apiBase;
-    }
+    // Set headers
+    BPrivate::Network::BHttpFields fields;
+    fields.AddField(std::string_view("Content-Type"), std::string_view("application/json"));
+    request.SetFields(fields);
 
-    // Extract host and path
-    int32 slashPos = host.FindFirst('/');
-    if (slashPos >= 0) {
-        path = host.String() + slashPos;
-        host.Truncate(slashPos);
-    } else {
-        path = "/";
-    }
+    // Set request body
+    auto bodyInput = std::make_unique<BMallocIO>();
+    bodyInput->Write(requestBodyStr.c_str(), requestBodyStr.length());
+    bodyInput->Seek(0, SEEK_SET);
+    request.SetRequestBody(std::move(bodyInput), "application/json", requestBodyStr.length());
 
-    // Extract port if specified
-    int32 colonPos = host.FindFirst(':');
-    if (colonPos >= 0) {
-        BString portStr = host.String() + colonPos + 1;
-        host.Truncate(colonPos);
-        port = atoi(portStr.String());
-    }
+    // Execute request
+    BHttpSession session;
+    BHttpResult result = session.Execute(std::move(request));
 
-    // Prepare endpoint path for completion
-    BString completionPath = path;
-    if (completionPath.EndsWith("/"))
-        completionPath.RemoveLast("/");
-
-    completionPath << "/api/chat";
-
-    // Create socket connection
-    BNetEndpoint socket;
-    status_t status = socket.Connect(host, port);
-
-    if (status != B_OK) {
-        // Connection failed
+    // Check result
+    const BHttpStatus& status = result.Status();
+    if (status.code != 200) {
+        // Handle error
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        BString errorStr = "Error connecting to Ollama: ";
-        errorStr << strerror(status);
-        errorMsg.AddString("content", errorStr);
+        errorMsg.AddString("content", BString("HTTP Error: ") << status.code);
         messenger->SendMessage(&errorMsg);
-
-        delete threadData;
         return -1;
     }
 
-    // Build HTTP request
-    BString httpRequest;
-    httpRequest << "POST " << completionPath << " HTTP/1.1\r\n";
-    httpRequest << "Host: " << host << "\r\n";
-    httpRequest << "Content-Type: application/json\r\n";
-    httpRequest << "Content-Length: " << requestBodyStr.Length() << "\r\n";
-    httpRequest << "Connection: close\r\n";
-    httpRequest << "\r\n";
-    httpRequest << requestBodyStr;
-
-    // Send request
-    socket.Send(httpRequest.String(), httpRequest.Length());
-
-    // Receive response
-    BNetBuffer buffer;
-    status = socket.Receive(buffer, buffer.Size());
-
-    if (status != B_OK || *cancelFlag) {
-        // Connection error or canceled
-        if (!*cancelFlag) {
-            BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-            BString errorStr = "Error receiving response: ";
-            errorStr << strerror(status);
-            errorMsg.AddString("content", errorStr);
-            messenger->SendMessage(&errorMsg);
-        }
-
-        socket.Close();
-        delete threadData;
-        return -1;
-    }
-
-    // Parse HTTP response
-    BString response((const char*)buffer.Data(), buffer.Size());
-
-    // Extract status code
-    int statusCode = 0;
-    if (response.StartsWith("HTTP/1.1 ")) {
-        BString statusStr = response.String() + 9;
-        statusCode = atoi(statusStr.String());
-    }
-
-    // Find the response body (after double newline)
-    int32 bodyPos = response.FindFirst("\r\n\r\n");
-    if (bodyPos < 0) {
-        // Invalid response format
-        BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        errorMsg.AddString("content", "Error: Invalid response format from Ollama");
-        messenger->SendMessage(&errorMsg);
-
-        socket.Close();
-        delete threadData;
-        return -1;
-    }
-
-    // Extract the body
-    BString body = response.String() + bodyPos + 4;
-
-    if (statusCode != 200) {
-        // API error
-        BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        BString errorStr = "Ollama Error (";
-        errorStr << statusCode << "): " << body;
-        errorMsg.AddString("content", errorStr);
-        messenger->SendMessage(&errorMsg);
-
-        socket.Close();
-        delete threadData;
-        return -1;
-    }
-
-    // Parse JSON response
+    // Parse response
     try {
-        json responseJson = json::parse(body.String());
+        std::string responseStr = result.Body().text.value().String();
+        json responseJson = json::parse(responseStr);
 
-        // Extract completion text
         BString completionText;
+        int32 inputTokens = 0, outputTokens = 0;
 
+        // Extract completion text and token usage
         if (responseJson.contains("message") &&
             responseJson["message"].contains("content")) {
 
             completionText = responseJson["message"]["content"].get<std::string>().c_str();
 
-            // Get token usage if available
-            int32 inputTokens = 0, outputTokens = 0;
-
+            // Ollama provides different token counting
             if (responseJson.contains("prompt_eval_count")) {
                 inputTokens = responseJson["prompt_eval_count"].get<int>();
             }
@@ -337,28 +249,18 @@ int32 OllamaProvider::_RequestThreadFunc(void* data)
                 outputTokens = responseJson["eval_count"].get<int>();
             }
 
-            // Send the response message
+            // Send response
             BMessage responseMsg(MSG_MESSAGE_RECEIVED);
             responseMsg.AddString("content", completionText);
             responseMsg.AddInt32("input_tokens", inputTokens);
             responseMsg.AddInt32("output_tokens", outputTokens);
             messenger->SendMessage(&responseMsg);
-        } else {
-            // Incomplete or invalid response
-            BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-            errorMsg.AddString("content", "Error: Invalid or incomplete response from Ollama");
-            messenger->SendMessage(&errorMsg);
         }
     } catch (const std::exception& e) {
-        // JSON parsing error
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        BString errorStr = "Error parsing Ollama response: ";
-        errorStr << e.what();
-        errorMsg.AddString("content", errorStr);
+        errorMsg.AddString("content", BString("JSON parsing error: ") << e.what());
         messenger->SendMessage(&errorMsg);
     }
 
-    socket.Close();
-    delete threadData;
     return 0;
 }

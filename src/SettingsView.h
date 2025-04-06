@@ -24,6 +24,8 @@ private:
     void _BuildLayout();
     void _LoadSettings();
     void _SaveSettings();
+    void _UpdateAPIStatus();
+    void _UpdateUsageStats();
 
     BTabView* fTabView;
 

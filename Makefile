@@ -14,6 +14,7 @@ SRCS = \
 	src/ModelSelector.cpp \
 	src/BFSStorage.cpp \
 	src/SettingsManager.cpp \
+	src/SettingsView.cpp \
 	src/SettingsWindow.cpp \
 	src/ModelManager.cpp \
 	src/MCPManager.cpp \

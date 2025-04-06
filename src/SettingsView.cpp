@@ -288,3 +288,39 @@ void SettingsView::_UpdateUsageStats()
 
     fTotalUsageView->SetText(usageText);
 }
+
+float SettingsManager::GetTemperature()
+{
+    float temperature;
+
+    if (fSettings.FindFloat("Temperature", &temperature) != B_OK)
+        return 0.7f; // Default value
+
+    return temperature;
+}
+
+void SettingsManager::SetTemperature(float temperature)
+{
+    if (fSettings.HasFloat("Temperature"))
+        fSettings.ReplaceFloat("Temperature", temperature);
+    else
+        fSettings.AddFloat("Temperature", temperature);
+}
+
+int32 SettingsManager::GetMaxTokens()
+{
+    int32 maxTokens;
+
+    if (fSettings.FindInt32("MaxTokens", &maxTokens) != B_OK)
+        return 2048; // Default value
+
+    return maxTokens;
+}
+
+void SettingsManager::SetMaxTokens(int32 maxTokens)
+{
+    if (fSettings.HasInt32("MaxTokens"))
+        fSettings.ReplaceInt32("MaxTokens", maxTokens);
+    else
+        fSettings.AddInt32("MaxTokens", maxTokens);
+}

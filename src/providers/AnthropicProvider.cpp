@@ -1,14 +1,24 @@
 // providers/AnthropicProvider.cpp
 #include "LLMProvider.h"
 #include "AnthropicProvider.h"
-#include <NetEndpoint.h>
-#include <NetBuffer.h>
+
 #include <Application.h>
-#include "external/json.hpp"
+#include <HttpSession.h>
+#include <HttpRequest.h>
+#include <HttpResult.h>
+#include <HttpFields.h>
+#include <Url.h>
+
+#include <memory>
 #include <stdlib.h>
+
+#include "ChatView.h"
+#include "external/json.hpp"
 #include "SettingsManager.h"
 #include "ChatMessage.h"
 #include "ChatView.h"
+
+using namespace BPrivate::Network;
 
 // Request thread struct
 struct RequestThreadData {
@@ -160,9 +170,8 @@ int32 AnthropicProvider::_RequestThreadFunc(void* data)
     BMessenger* messenger = threadData->messenger;
     bool* cancelFlag = threadData->cancelFlag;
 
-    // Build the request body as JSON
+    // Prepare request body
     using json = nlohmann::json;
-
     json requestBody;
     requestBody["model"] = model.String();
     requestBody["messages"] = json::array();
@@ -177,11 +186,9 @@ int32 AnthropicProvider::_RequestThreadFunc(void* data)
             case MESSAGE_ROLE_USER:
                 messageObj["role"] = "user";
                 break;
-
             case MESSAGE_ROLE_ASSISTANT:
                 messageObj["role"] = "assistant";
                 break;
-
             case MESSAGE_ROLE_SYSTEM:
                 messageObj["role"] = "system";
                 break;
@@ -191,194 +198,80 @@ int32 AnthropicProvider::_RequestThreadFunc(void* data)
         requestBody["messages"].push_back(messageObj);
     }
 
-    // Add current message
-    json userMsg;
-    userMsg["role"] = "user";
-    userMsg["content"] = threadData->message.String();
-    requestBody["messages"].push_back(userMsg);
-
-    // Set other parameters
+    // Set additional parameters
     requestBody["temperature"] = 0.7;
     requestBody["max_tokens"] = 1000;
-    requestBody["stream"] = false;  // Not using streaming for simplicity
 
-    // Convert to string
-    BString requestBodyStr = requestBody.dump().c_str();
+    // Convert JSON to string
+    std::string requestBodyStr = requestBody.dump();
 
-    // Parse API base to extract host, port, and path
-    BString host, path;
-    int port = 443;  // Default HTTPS port
+    // Create URL
+    BUrl url(apiBase.String());
+    url.SetPath("/messages");
 
-    if (apiBase.StartsWith("https://")) {
-        host = apiBase.String() + 8;  // Skip "https://"
-    } else if (apiBase.StartsWith("http://")) {
-        host = apiBase.String() + 7;  // Skip "http://"
-        port = 80;  // HTTP port
-    } else {
-        host = apiBase;
-    }
+    // Prepare HTTP request
+    BHttpRequest request(url);
+    request.SetMethod(BHttpMethod::Post);
 
-    // Extract host and path
-    int32 slashPos = host.FindFirst('/');
-    if (slashPos >= 0) {
-        path = host.String() + slashPos;
-        host.Truncate(slashPos);
-    } else {
-        path = "/";
-    }
+    // Set headers
+    BPrivate::Network::BHttpFields fields;
+    fields.AddField(std::string_view("Content-Type"), std::string_view("application/json"));
+    fields.AddField(std::string_view("x-api-key"), std::string_view(apiKey.String()));
+    fields.AddField(std::string_view("anthropic-version"), std::string_view("2023-06-01"));
+    request.SetFields(fields);
 
-    // Extract port if specified
-    int32 colonPos = host.FindFirst(':');
-    if (colonPos >= 0) {
-        BString portStr = host.String() + colonPos + 1;
-        host.Truncate(colonPos);
-        port = atoi(portStr.String());
-    }
+    // Set request body
+    auto bodyInput = std::make_unique<BMallocIO>();
+    bodyInput->Write(requestBodyStr.c_str(), requestBodyStr.length());
+    bodyInput->Seek(0, SEEK_SET);
+    request.SetRequestBody(std::move(bodyInput), "application/json", requestBodyStr.length());
 
-    // Prepare endpoint path for completion
-    BString completionPath = path;
-    if (completionPath.EndsWith("/"))
-        completionPath.RemoveLast("/");
+    // Execute request
+    BHttpSession session;
+    BHttpResult result = session.Execute(std::move(request));
 
-    completionPath << "/messages";
-
-    // Create socket connection
-    BNetEndpoint socket;
-    status_t status = socket.Connect(host, port);
-
-    if (status != B_OK) {
-        // Connection failed
+    // Check result
+    const BHttpStatus& status = result.Status();
+    if (status.code != 200) {
+        // Handle error
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        BString errorStr = "Error connecting to API: ";
-        errorStr << strerror(status);
-        errorMsg.AddString("content", errorStr);
+        errorMsg.AddString("content", BString("HTTP Error: ") << status.code);
         messenger->SendMessage(&errorMsg);
-
-        delete threadData;
         return -1;
     }
 
-    // Build HTTP request
-    BString httpRequest;
-    httpRequest << "POST " << completionPath << " HTTP/1.1\r\n";
-    httpRequest << "Host: " << host << "\r\n";
-    httpRequest << "Content-Type: application/json\r\n";
-    httpRequest << "x-api-key: " << apiKey << "\r\n";
-    httpRequest << "anthropic-version: 2023-06-01\r\n";  // Required header for Anthropic
-    httpRequest << "Content-Length: " << requestBodyStr.Length() << "\r\n";
-    httpRequest << "Connection: close\r\n";
-    httpRequest << "\r\n";
-    httpRequest << requestBodyStr;
-
-    // Send request
-    socket.Send(httpRequest.String(), httpRequest.Length());
-
-    // Receive response
-    BNetBuffer buffer;
-    status = socket.Receive(buffer, buffer.Size());
-
-    if (status != B_OK || *cancelFlag) {
-        // Connection error or canceled
-        if (!*cancelFlag) {
-            BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-            BString errorStr = "Error receiving response: ";
-            errorStr << strerror(status);
-            errorMsg.AddString("content", errorStr);
-            messenger->SendMessage(&errorMsg);
-        }
-
-        socket.Close();
-        delete threadData;
-        return -1;
-    }
-
-    // Parse HTTP response
-    BString response((const char*)buffer.Data(), buffer.Size());
-
-    // Extract status code
-    int statusCode = 0;
-    if (response.StartsWith("HTTP/1.1 ")) {
-        BString statusStr = response.String() + 9;
-        statusCode = atoi(statusStr.String());
-    }
-
-    // Find the response body (after double newline)
-    int32 bodyPos = response.FindFirst("\r\n\r\n");
-    if (bodyPos < 0) {
-        // Invalid response format
-        BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        errorMsg.AddString("content", "Error: Invalid response format from API");
-        messenger->SendMessage(&errorMsg);
-
-        socket.Close();
-        delete threadData;
-        return -1;
-    }
-
-    // Extract the body
-    BString body = response.String() + bodyPos + 4;
-
-    if (statusCode != 200) {
-        // API error
-        BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        BString errorStr = "API Error (";
-        errorStr << statusCode << "): " << body;
-        errorMsg.AddString("content", errorStr);
-        messenger->SendMessage(&errorMsg);
-
-        socket.Close();
-        delete threadData;
-        return -1;
-    }
-
-    // Parse JSON response - Anthropic format is different from OpenAI
+    // Parse response
     try {
-        json responseJson = json::parse(body.String());
+        std::string responseStr = result.Body().text.value().String();
+        json responseJson = json::parse(responseStr);
 
-        // Extract completion text
         BString completionText;
+        int32 inputTokens = 0, outputTokens = 0;
 
+        // Extract completion text and token usage
         if (responseJson.contains("content") &&
-            responseJson["content"].size() > 0 &&
+            !responseJson["content"].empty() &&
             responseJson["content"][0].contains("text")) {
 
             completionText = responseJson["content"][0]["text"].get<std::string>().c_str();
 
-            // Get token usage if available
-            int32 inputTokens = 0, outputTokens = 0;
-
             if (responseJson.contains("usage")) {
-                if (responseJson["usage"].contains("input_tokens")) {
-                    inputTokens = responseJson["usage"]["input_tokens"].get<int>();
-                }
-
-                if (responseJson["usage"].contains("output_tokens")) {
-                    outputTokens = responseJson["usage"]["output_tokens"].get<int>();
-                }
+                inputTokens = responseJson["usage"]["input_tokens"].get<int>();
+                outputTokens = responseJson["usage"]["output_tokens"].get<int>();
             }
 
-            // Send the response message
+            // Send response
             BMessage responseMsg(MSG_MESSAGE_RECEIVED);
             responseMsg.AddString("content", completionText);
             responseMsg.AddInt32("input_tokens", inputTokens);
             responseMsg.AddInt32("output_tokens", outputTokens);
             messenger->SendMessage(&responseMsg);
-        } else {
-            // Incomplete or invalid response
-            BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-            errorMsg.AddString("content", "Error: Invalid or incomplete response from API");
-            messenger->SendMessage(&errorMsg);
         }
     } catch (const std::exception& e) {
-        // JSON parsing error
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-        BString errorStr = "Error parsing response: ";
-        errorStr << e.what();
-        errorMsg.AddString("content", errorStr);
+        errorMsg.AddString("content", BString("JSON parsing error: ") << e.what());
         messenger->SendMessage(&errorMsg);
     }
 
-    socket.Close();
-    delete threadData;
     return 0;
 }

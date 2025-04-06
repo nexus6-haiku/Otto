@@ -20,12 +20,13 @@ public:
     BString ApiKey() const { return fApiKey; }
     void SetApiKey(const BString& apiKey) { fApiKey = apiKey; }
 
-    virtual BObjectList<LLMModel>* GetModels() = 0;
+    // Non-pure virtual methods with default implementations
+    virtual BObjectList<LLMModel>* GetModels() { return nullptr; }
     virtual void SendMessage(const BObjectList<ChatMessage, true>& history,
                             const BString& message,
-                            BMessenger* messenger) = 0;
+                            BMessenger* messenger) {}
 
-    virtual void CancelRequest() = 0;
+    virtual void CancelRequest() {}
 
 protected:
     BString fName;

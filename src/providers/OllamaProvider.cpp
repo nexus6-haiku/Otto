@@ -2,12 +2,11 @@
 #include "OllamaProvider.h"
 #include <NetEndpoint.h>
 #include <NetBuffer.h>
-#include <App.h>
-#include <json.hpp>
+#include "external/json.hpp"
 #include <stdlib.h>
-#include <stdio.h>
 #include "SettingsManager.h"
 #include "ChatMessage.h"
+#include "ChatView.h"
 
 // Request thread struct
 struct RequestThreadData {
@@ -21,7 +20,7 @@ struct RequestThreadData {
 
 OllamaProvider::OllamaProvider()
     : LLMProvider("Ollama")
-    , fModels(10, true)
+    , fModels(10)
     , fRequestThread(-1)
     , fCancelRequested(false)
 {
@@ -259,7 +258,7 @@ int32 OllamaProvider::_RequestThreadFunc(void* data)
 
     // Receive response
     BNetBuffer buffer;
-    status = socket.Receive(buffer);
+    status = socket.Receive(buffer, buffer.Size());
 
     if (status != B_OK || *cancelFlag) {
         // Connection error or canceled

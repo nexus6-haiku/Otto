@@ -14,22 +14,22 @@
 #include "ChatMessage.h"
 
 // Data storage types
-#define ATTR_CHAT_TITLE "HaikuLLM:Title"
-#define ATTR_CHAT_CREATED "HaikuLLM:CreatedAt"
-#define ATTR_CHAT_UPDATED "HaikuLLM:UpdatedAt"
-#define ATTR_MESSAGE_ROLE "HaikuLLM:Role"
-#define ATTR_MESSAGE_TIMESTAMP "HaikuLLM:Timestamp"
-#define ATTR_MESSAGE_TOKENS_IN "HaikuLLM:TokensIn"
-#define ATTR_MESSAGE_TOKENS_OUT "HaikuLLM:TokensOut"
-#define ATTR_CHAT_ID "HaikuLLM:ChatID"
-#define ATTR_MESSAGE_ORDER "HaikuLLM:Order"
+#define ATTR_CHAT_TITLE "Otto:Title"
+#define ATTR_CHAT_CREATED "Otto:CreatedAt"
+#define ATTR_CHAT_UPDATED "Otto:UpdatedAt"
+#define ATTR_MESSAGE_ROLE "Otto:Role"
+#define ATTR_MESSAGE_TIMESTAMP "Otto:Timestamp"
+#define ATTR_MESSAGE_TOKENS_IN "Otto:TokensIn"
+#define ATTR_MESSAGE_TOKENS_OUT "Otto:TokensOut"
+#define ATTR_CHAT_ID "Otto:ChatID"
+#define ATTR_MESSAGE_ORDER "Otto:Order"
 
 // Usage stats types
-#define ATTR_USAGE_PROVIDER "HaikuLLM:Provider"
-#define ATTR_USAGE_MODEL "HaikuLLM:Model"
-#define ATTR_USAGE_TOKENS_IN "HaikuLLM:TokensIn"
-#define ATTR_USAGE_TOKENS_OUT "HaikuLLM:TokensOut"
-#define ATTR_USAGE_TIMESTAMP "HaikuLLM:Timestamp"
+#define ATTR_USAGE_PROVIDER "Otto:Provider"
+#define ATTR_USAGE_MODEL "Otto:Model"
+#define ATTR_USAGE_TOKENS_IN "Otto:TokensIn"
+#define ATTR_USAGE_TOKENS_OUT "Otto:TokensOut"
+#define ATTR_USAGE_TIMESTAMP "Otto:Timestamp"
 
 class BFSStorage {
 public:

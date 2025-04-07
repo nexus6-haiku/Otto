@@ -10,12 +10,12 @@
 #define B_TRANSLATION_CONTEXT "MainWindow"
 
 MainWindow::MainWindow()
-    : BWindow(BRect(100, 100, 900, 700), B_TRANSLATE("HaikuLLM"), B_TITLED_WINDOW,
+    : BWindow(BRect(100, 100, 900, 700), B_TRANSLATE("Otto"), B_TITLED_WINDOW,
         B_AUTO_UPDATE_SIZE_LIMITS)
 {
     _BuildMenu();
     _InitLayout();
-    
+
     CenterOnScreen();
 }
 
@@ -32,7 +32,7 @@ bool MainWindow::QuitRequested()
 void MainWindow::_BuildMenu()
 {
     fMenuBar = new BMenuBar("menubar");
-    
+
     // File menu
     BMenu* fileMenu = new BMenu(B_TRANSLATE("File"));
     fileMenu->AddItem(new BMenuItem(B_TRANSLATE("New Chat"), new BMessage(MSG_NEW_CHAT), 'N'));
@@ -41,22 +41,22 @@ void MainWindow::_BuildMenu()
     fileMenu->AddSeparatorItem();
     fileMenu->AddItem(new BMenuItem(B_TRANSLATE("Quit"), new BMessage(B_QUIT_REQUESTED), 'Q'));
     fMenuBar->AddItem(fileMenu);
-    
+
     // Edit menu
     BMenu* editMenu = new BMenu(B_TRANSLATE("Edit"));
     editMenu->AddItem(new BMenuItem(B_TRANSLATE("Copy"), new BMessage(B_COPY), 'C'));
     editMenu->AddItem(new BMenuItem(B_TRANSLATE("Paste"), new BMessage(B_PASTE), 'V'));
     fMenuBar->AddItem(editMenu);
-    
+
     // View menu
     BMenu* viewMenu = new BMenu(B_TRANSLATE("View"));
     viewMenu->AddItem(new BMenuItem(B_TRANSLATE("Settings"), new BMessage(MSG_SHOW_SETTINGS)));
     viewMenu->AddItem(new BMenuItem(B_TRANSLATE("Usage Statistics"), new BMessage(MSG_SHOW_STATS)));
     fMenuBar->AddItem(viewMenu);
-    
+
     // Help menu
     BMenu* helpMenu = new BMenu(B_TRANSLATE("Help"));
-    helpMenu->AddItem(new BMenuItem(B_TRANSLATE("About HaikuLLM"), new BMessage(B_ABOUT_REQUESTED)));
+    helpMenu->AddItem(new BMenuItem(B_TRANSLATE("About Otto"), new BMessage(B_ABOUT_REQUESTED)));
     fMenuBar->AddItem(helpMenu);
 }
 
@@ -65,11 +65,11 @@ void MainWindow::_InitLayout()
     fModelSelector = new ModelSelector();
     fChatView = new ChatView();
     fSettingsView = new SettingsView();
-    
+
     // Create a split view with model selector on left and chat view on right
     fMainSplitView = new BSplitView(B_HORIZONTAL);
     fMainSplitView->SetCollapsible(true);
-    
+
     BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
         .Add(fMenuBar)
         .AddSplit(fMainSplitView)

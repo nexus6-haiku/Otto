@@ -31,7 +31,7 @@ BFSStorage::BFSStorage()
 
     // Set up base directory in user settings
     if (find_directory(B_USER_SETTINGS_DIRECTORY, &fBasePath) == B_OK) {
-        fBasePath.Append("HaikuLLM");
+        fBasePath.Append("Otto");
 
         // Set subdirectories
         fChatsDir = fBasePath;
@@ -151,7 +151,7 @@ status_t BFSStorage::SaveChat(Chat* chat)
 
     // Set file MIME type
     BNodeInfo nodeInfo(&chatFile);
-    nodeInfo.SetType("application/x-haikullm-chat");
+    nodeInfo.SetType("application/x-vnd.Otto-chat");
 
     // Add attributes to the file
     chatFile.WriteAttr(ATTR_CHAT_TITLE, B_STRING_TYPE, 0, chat->Title().String(), chat->Title().Length() + 1);
@@ -388,8 +388,8 @@ BObjectList<Chat, true>* BFSStorage::LoadAllChats()
 
     query.SetVolume(&volume);
 
-    // Find files with MIME type "application/x-haikullm-chat"
-    query.SetPredicate("BEOS:TYPE == \"application/x-haikullm-chat\"");
+    // Find files with MIME type "application/x-vnd.Otto-chat"
+    query.SetPredicate("BEOS:TYPE == \"application/x-vnd.Otto-chat\"");
 
     status_t status = query.Fetch();
     if (status != B_OK)
@@ -456,7 +456,7 @@ status_t BFSStorage::SaveUsageStats(const BString& provider, const BString& mode
 
     // Set file MIME type
     BNodeInfo nodeInfo(&usageFile);
-    nodeInfo.SetType("application/x-haikullm-usage");
+    nodeInfo.SetType("application/x-vnd.Otto-usage");
 
     // Add attributes to the file
     usageFile.WriteAttr(ATTR_USAGE_PROVIDER, B_STRING_TYPE, 0, provider.String(), provider.Length() + 1);
@@ -490,7 +490,7 @@ status_t BFSStorage::GetTotalUsage(const BString& provider, const BString& model
     query.SetVolume(&volume);
 
     // Build query expression
-    BString expression = "BEOS:TYPE == \"application/x-haikullm-usage\"";
+    BString expression = "BEOS:TYPE == \"application/x-vnd.Otto-usage\"";
 
     // Add provider criteria if specified
     if (provider.Length() > 0) {

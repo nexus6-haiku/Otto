@@ -32,7 +32,7 @@ status_t MCPManager::Initialize()
     // Load registered servers from settings
     BPath path;
     if (find_directory(B_USER_SETTINGS_DIRECTORY, &path) == B_OK) {
-        path.Append("HaikuLLM/mcp_servers");
+        path.Append("Otto/mcp_servers");
 
         BFile file(path.Path(), B_READ_ONLY);
         if (file.InitCheck() == B_OK) {
@@ -61,7 +61,7 @@ void MCPManager::Shutdown()
     // Save server list
     BPath path;
     if (find_directory(B_USER_SETTINGS_DIRECTORY, &path) == B_OK) {
-        path.Append("HaikuLLM");
+        path.Append("Otto");
 
         // Create directory if it doesn't exist
         BDirectory dir(path.Path());

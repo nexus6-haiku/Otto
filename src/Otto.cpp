@@ -1,28 +1,27 @@
-// HaikuLLM.cpp
 #include <Application.h>
 #include <Window.h>
 #include "MainWindow.h"
 
-class HaikuLLMApp : public BApplication {
+class OttoApp : public BApplication {
 public:
-    HaikuLLMApp();
-    virtual ~HaikuLLMApp();
+    OttoApp();
+    virtual ~OttoApp();
 };
 
-HaikuLLMApp::HaikuLLMApp()
-    : BApplication("application/x-vnd.HaikuLLM")
+OttoApp::OttoApp()
+    : BApplication("application/x-vnd.Otto")
 {
     MainWindow* mainWindow = new MainWindow();
     mainWindow->Show();
 }
 
-HaikuLLMApp::~HaikuLLMApp()
+OttoApp::~OttoApp()
 {
 }
 
 int main()
 {
-    HaikuLLMApp app;
+    OttoApp app;
     app.Run();
     return 0;
 }

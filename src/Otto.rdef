@@ -1,6 +1,4 @@
-# src/HaikuLLM.rdef
-
-resource app_signature "application/x-vnd.HaikuLLM";
+resource app_signature "application/x-vnd.Otto";
 
 resource app_flags B_MULTIPLE_LAUNCH;
 
@@ -10,7 +8,7 @@ resource app_version {
 	minor  = 0,
 	variety = B_APPV_DEVELOPMENT,
 	internal = 0,
-	short_info = "HaikuLLM",
+	short_info = "Otto",
 	long_info = "A native Haiku LLM chat client."
 };
 
@@ -42,5 +40,5 @@ resource vector_icon {
 };
 
 resource file_types message {
-	"types" = "application/x-haikullm-chat"
+	"types" = "application/x-vnd.Otto-chat"
 };

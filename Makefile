@@ -3,7 +3,7 @@
 NAME = Otto
 TYPE = APP
 APP_MIME_SIG = application/x-vnd.nexus6-otto
-
+TARGET_DIR = .
 SRCS = \
 	src/Otto.cpp \
 	src/MainWindow.cpp \
@@ -28,7 +28,7 @@ RDEFS = \
 
 RSRCS =
 
-LIBS = be translation network netservices2 textencoding localestub shared $(STDCPPLIBS)
+LIBS = be translation netservices2 bnetapi textencoding localestub shared $(STDCPPLIBS)
 
 LIBPATHS =
 

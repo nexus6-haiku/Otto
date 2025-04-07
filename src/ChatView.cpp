@@ -7,6 +7,7 @@
 #include <Roster.h>
 #include <StringView.h>
 #include <SpaceLayoutItem.h>
+#include <cstdio>
 #include "SettingsManager.h"
 #include "BFSStorage.h"
 
@@ -74,7 +75,6 @@ void ChatView::AttachedToWindow()
 {
    BView::AttachedToWindow();
 
-   // Set up targets for controls
    fSendButton->SetTarget(this);
    fCancelButton->SetTarget(this);
 
@@ -98,51 +98,57 @@ void ChatView::MessageReceived(BMessage* message)
            }
            break;
 
-       case MSG_MESSAGE_RECEIVED: {
-           // Handle response from the LLM
-           BString content;
-           if (message->FindString("content", &content) == B_OK) {
-               // Create a new assistant message
-               ChatMessage* reply = new ChatMessage(content, MESSAGE_ROLE_ASSISTANT);
+	case MSG_MESSAGE_RECEIVED: {
+		// Handle response from the LLM
+		BString content;
+		printf("Received message from LLM provider\n");
+		if (message->FindString("content", &content) == B_OK) {
+			printf("Message content: %s\n", content.String());
+			// Create a new assistant message
+			ChatMessage* reply = new ChatMessage(content, MESSAGE_ROLE_ASSISTANT);
 
-               // Get token counts if available
-               int32 inputTokens = 0, outputTokens = 0;
-               message->FindInt32("input_tokens", &inputTokens);
-               message->FindInt32("output_tokens", &outputTokens);
-               reply->SetInputTokens(inputTokens);
-               reply->SetOutputTokens(outputTokens);
+			// Get token counts if available
+			int32 inputTokens = 0, outputTokens = 0;
+			message->FindInt32("input_tokens", &inputTokens);
+			message->FindInt32("output_tokens", &outputTokens);
+			printf("Tokens - Input: %d, Output: %d\n", inputTokens, outputTokens);
+			reply->SetInputTokens(inputTokens);
+			reply->SetOutputTokens(outputTokens);
 
-               // Add to chat and display
-               if (fActiveChat != NULL) {
-                   fActiveChat->AddMessage(reply);
-                   fActiveChat->SetUpdatedAt(time(NULL));
+			// Add to chat and display
+			if (fActiveChat != NULL) {
+				printf("Adding message to active chat\n");
+				fActiveChat->AddMessage(reply);
+				fActiveChat->SetUpdatedAt(time(NULL));
 
-                   // Save the chat
-                   BFSStorage::GetInstance()->SaveChat(fActiveChat);
+				// Save the chat
+				BFSStorage::GetInstance()->SaveChat(fActiveChat);
 
-                   // Save usage statistics
-                   if (fActiveProvider != NULL && fActiveModel != NULL) {
-                       BFSStorage::GetInstance()->SaveUsageStats(
-                           fActiveProvider->Name(),
-                           fActiveModel->Name(),
-                           inputTokens,
-                           outputTokens
-                       );
-                   }
-               }
+				// Save usage statistics
+				if (fActiveProvider != NULL && fActiveModel != NULL) {
+					BFSStorage::GetInstance()->SaveUsageStats(
+						fActiveProvider->Name(),
+						fActiveModel->Name(),
+						inputTokens,
+						outputTokens
+					);
+				}
+			}
 
-               _AppendMessageToDisplay(reply);
-           }
+			printf("Appending message to display\n");
+			_AppendMessageToDisplay(reply);
+		}
 
-           // Update UI state
-           fIsBusy = false;
-           fCancelButton->SetEnabled(false);
-           fSendButton->SetEnabled(true);
+		// Update UI state
+		fIsBusy = false;
+		printf("Setting UI state back to ready\n");
+		fCancelButton->SetEnabled(false);
+		fSendButton->SetEnabled(true);
 
-           // Focus the input field again
-           fInputField->MakeFocus(true);
-           break;
-       }
+		// Focus the input field again
+		fInputField->MakeFocus(true);
+		break;
+	}
 
        default:
            BView::MessageReceived(message);
@@ -249,7 +255,13 @@ void ChatView::_AppendMessageToDisplay(ChatMessage* message)
 
 void ChatView::_SendMessage()
 {
-   if (fActiveChat == NULL || fActiveProvider == NULL || fActiveModel == NULL) {
+	if (fActiveChat == NULL || fActiveProvider == NULL || fActiveModel == NULL) {
+       // Add debug output
+       printf("Error: Missing component to send message:\n");
+       printf("- Chat: %s\n", fActiveChat ? "Set" : "NULL");
+       printf("- Provider: %s\n", fActiveProvider ? fActiveProvider->Name().String() : "NULL");
+       printf("- Model: %s\n", fActiveModel ? fActiveModel->Name().String() : "NULL");
+
        // Show error alert
        BAlert* alert = new BAlert(B_TRANSLATE("Error"),
            B_TRANSLATE("Please select a chat, provider, and model first."),
@@ -258,6 +270,8 @@ void ChatView::_SendMessage()
        alert->Go();
        return;
    }
+
+
 
    // Get message text from input field
    BString messageText = fInputField->Text();

@@ -6,6 +6,10 @@
 #include <MenuItem.h>
 #include <Catalog.h>
 
+#include "BFSStorage.h"
+#include "SettingsWindow.h"
+#include "ModelManager.h"
+
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "MainWindow"
 
@@ -15,6 +19,15 @@ MainWindow::MainWindow()
 {
     _BuildMenu();
     _InitLayout();
+
+    // Create and set a default chat
+    Chat* defaultChat = new Chat("New Chat");
+    ChatMessage* sysMsg = new ChatMessage("You are chatting with an AI assistant.", MESSAGE_ROLE_SYSTEM);
+    defaultChat->AddMessage(sysMsg);
+    fChatView->SetActiveChat(defaultChat);
+
+    // Save the new chat
+    BFSStorage::GetInstance()->SaveChat(defaultChat);
 
     CenterOnScreen();
 }
@@ -81,4 +94,80 @@ void MainWindow::_InitLayout()
             .SetInsets(B_USE_DEFAULT_SPACING)
             .End()
         .End();
+}
+
+void MainWindow::MessageReceived(BMessage* message)
+{
+    switch (message->what) {
+        case MSG_NEW_CHAT:
+            // Handle new chat
+            {
+                // Create a new chat with a default title
+                Chat* newChat = new Chat("New Chat");
+                // Add system message for context (optional)
+                ChatMessage* sysMsg = new ChatMessage("You are chatting with an AI assistant.", MESSAGE_ROLE_SYSTEM);
+                newChat->AddMessage(sysMsg);
+                // Set as active chat
+                fChatView->SetActiveChat(newChat);
+                // Save the new chat
+                BFSStorage::GetInstance()->SaveChat(newChat);
+            }
+            break;
+
+        case MSG_SAVE_CHAT:
+            // Trigger chat save (already handled in ChatView when messages are sent)
+            break;
+
+        case MSG_EXPORT_CHAT:
+            // Handle chat export
+            break;
+
+        case MSG_SHOW_SETTINGS:
+            {
+                SettingsWindow* window = new SettingsWindow();
+                window->Show();
+            }
+            break;
+
+        case MSG_SHOW_STATS:
+            // Show statistics window
+            break;
+
+        case B_OBSERVER_NOTICE_CHANGE:
+            {
+                // Handle provider selection change
+                BString providerName;
+                if (message->FindString("provider_selected", &providerName) == B_OK) {
+                    LLMProvider* provider = ModelManager::GetInstance()->GetProvider(providerName);
+                    if (provider != NULL) {
+                        fChatView->SetProvider(provider);
+
+                        // Auto-select default model if available
+                        BObjectList<LLMModel>* models = provider->GetModels();
+                        if (models != NULL && models->CountItems() > 0) {
+                            fChatView->SetModel(models->ItemAt(0));
+                        }
+                    }
+                }
+
+                // Handle model selection change
+                BString modelName;
+                if (message->FindString("model_selected", &modelName) == B_OK) {
+                    if (fModelSelector->SelectedProvider() != NULL) {
+                        BObjectList<LLMModel>* models = fModelSelector->SelectedProvider()->GetModels();
+                        for (int32 i = 0; i < models->CountItems(); i++) {
+                            if (models->ItemAt(i)->Name() == modelName) {
+                                fChatView->SetModel(models->ItemAt(i));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+
+        default:
+            BWindow::MessageReceived(message);
+            break;
+    }
 }

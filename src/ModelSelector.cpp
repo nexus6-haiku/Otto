@@ -6,6 +6,7 @@
 #include <stdio.h>  // Add this include for printf
 #include "ModelManager.h"
 #include "SettingsManager.h"
+#include "SettingsWindow.h"
 
 #undef B_TRANSLATION_CONTEXT
 #define B_TRANSLATION_CONTEXT "ModelSelector"
@@ -83,7 +84,12 @@ void ModelSelector::MessageReceived(BMessage* message)
                 // Update model menu
                 _UpdateModelMenu();
 
-                // Check if API key is set
+                // [NEW] Directly notify the parent window
+                BMessage notifyMsg(B_OBSERVER_NOTICE_CHANGE);
+                notifyMsg.AddString("provider_selected", providerName);
+                Window()->PostMessage(&notifyMsg);
+
+                // API key check (existing code)
                 SettingsManager* settings = SettingsManager::GetInstance();
                 BString apiKey = settings->GetApiKey(providerName);
 
@@ -97,32 +103,37 @@ void ModelSelector::MessageReceived(BMessage* message)
             break;
         }
 
-        case MSG_MODEL_SELECTED: {
-            BString modelName;
-            if (message->FindString("model", &modelName) == B_OK && fSelectedProvider != NULL) {
-                // Find the model
-                BObjectList<LLMModel>* models = fSelectedProvider->GetModels();
+		case MSG_MODEL_SELECTED: {
+			BString modelName;
+			if (message->FindString("model", &modelName) == B_OK && fSelectedProvider != NULL) {
+				// Find the model
+				BObjectList<LLMModel>* models = fSelectedProvider->GetModels();
 
-                for (int32 i = 0; i < models->CountItems(); i++) {
-                    if (models->ItemAt(i)->Name() == modelName) {
-                        fSelectedModel = models->ItemAt(i);
-                        break;
-                    }
-                }
+				for (int32 i = 0; i < models->CountItems(); i++) {
+					if (models->ItemAt(i)->Name() == modelName) {
+						fSelectedModel = models->ItemAt(i);
 
-                // Update settings
-                if (fSelectedModel != NULL) {
-                    SettingsManager* settings = SettingsManager::GetInstance();
-                    settings->SetDefaultModel(fSelectedProvider->Name(), fSelectedModel->Name());
-                }
-            }
-            break;
-        }
+						// [NEW] Notify the parent window about model selection
+						BMessage notifyMsg(B_OBSERVER_NOTICE_CHANGE);
+						notifyMsg.AddString("model_selected", modelName);
+						Window()->PostMessage(&notifyMsg);
+						break;
+					}
+				}
+
+				// Update settings
+				if (fSelectedModel != NULL) {
+					SettingsManager* settings = SettingsManager::GetInstance();
+					settings->SetDefaultModel(fSelectedProvider->Name(), fSelectedModel->Name());
+				}
+			}
+			break;
+		}
 
         case MSG_SETTINGS_CLICKED: {
-            // Launch settings window
-            // In a real app, you would create and show a settings window here
-            printf("Settings button clicked\n");
+            // Show settings window
+            SettingsWindow* window = new SettingsWindow();
+            window->Show();
             break;
         }
 

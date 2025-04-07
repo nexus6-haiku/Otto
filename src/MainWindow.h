@@ -21,7 +21,8 @@ class MainWindow : public BWindow {
 public:
     MainWindow();
     virtual ~MainWindow();
-    virtual bool QuitRequested();
+    virtual bool QuitRequested() override;
+	virtual void MessageReceived(BMessage *message) override;
 
 private:
     void _BuildMenu();

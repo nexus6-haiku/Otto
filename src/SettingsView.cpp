@@ -122,7 +122,7 @@ void SettingsView::AttachedToWindow()
 {
     BView::AttachedToWindow();
 
-    // Set targets
+    // Set targets explicitly to this view
     fTemperatureSlider->SetTarget(this);
     fMaxTokensSlider->SetTarget(this);
     fToolsEnabledCheckbox->SetTarget(this);
@@ -131,6 +131,13 @@ void SettingsView::AttachedToWindow()
 
     // Update usage stats
     _UpdateUsageStats();
+
+    // Fix message handling for buttons
+    fAPISettingsButton->SetMessage(new BMessage(MSG_SETTINGS_CHANGED));
+    fAPISettingsButton->Message()->AddString("name", "apiSettingsButton");
+
+    fResetStatsButton->SetMessage(new BMessage(MSG_SETTINGS_CHANGED));
+    fResetStatsButton->Message()->AddString("name", "resetStatsButton");
 }
 
 void SettingsView::MessageReceived(BMessage* message)

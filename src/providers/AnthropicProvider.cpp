@@ -8,22 +8,23 @@
 #include <HttpResult.h>
 #include <HttpFields.h>
 #include <Url.h>
-
-#include <memory>
-#include <stdlib.h>
 #include <Path.h>
 #include <File.h>
 #include <FindDirectory.h>
 #include <OS.h>
-#include <stdlib.h>
+#include <String.h>
+#include <ObjectList.h>
+#include <Messenger.h>
+#include <Entry.h>
+#include <DataIO.h>
 
 #include "ChatView.h"
 #include "external/json.hpp"
 #include "SettingsManager.h"
 #include "ChatMessage.h"
-#include "ChatView.h"
 
 using namespace BPrivate::Network;
+using json = nlohmann::json;
 
 // Request thread struct
 struct RequestThreadData {
@@ -42,10 +43,7 @@ AnthropicProvider::AnthropicProvider()
     , fRequestThread(-1)
     , fCancelRequested(false)
 {
-    // Set default API base
     fApiBase = "https://api.anthropic.com/v1";
-
-    // Init models
     _InitModels();
 }
 
@@ -56,7 +54,7 @@ AnthropicProvider::~AnthropicProvider()
 
 void AnthropicProvider::_InitModels()
 {
-    // Add supported models
+    // Add Claude 3 Opus
     LLMModel* claude3opus = new LLMModel("claude-3-opus-20240229", "Claude 3 Opus");
     claude3opus->SetContextWindow(200000);
     claude3opus->SetMaxTokens(4096);
@@ -64,6 +62,7 @@ void AnthropicProvider::_InitModels()
     claude3opus->SetSupportsTools(true);
     fModels.AddItem(claude3opus);
 
+    // Add Claude 3 Sonnet
     LLMModel* claude3sonnet = new LLMModel("claude-3-sonnet-20240229", "Claude 3 Sonnet");
     claude3sonnet->SetContextWindow(200000);
     claude3sonnet->SetMaxTokens(4096);
@@ -71,6 +70,7 @@ void AnthropicProvider::_InitModels()
     claude3sonnet->SetSupportsTools(true);
     fModels.AddItem(claude3sonnet);
 
+    // Add Claude 3 Haiku
     LLMModel* claude3haiku = new LLMModel("claude-3-haiku-20240307", "Claude 3 Haiku");
     claude3haiku->SetContextWindow(200000);
     claude3haiku->SetMaxTokens(4096);
@@ -85,13 +85,11 @@ BObjectList<LLMModel>* AnthropicProvider::GetModels()
 }
 
 void AnthropicProvider::SendMessage(const BObjectList<ChatMessage, true>& history,
-                               const BString& message,
-                               BMessenger* messenger)
+                           const BString& message,
+                           BMessenger* messenger)
 {
     // Cancel any existing request
     CancelRequest();
-
-    // Reset cancel flag
     fCancelRequested = false;
 
     // Get API key and model from settings
@@ -105,22 +103,23 @@ void AnthropicProvider::SendMessage(const BObjectList<ChatMessage, true>& histor
         int32 pathPos = apiBase.FindLast("/v1");
         apiBase.Truncate(pathPos + 3); // Keep up to "/v1"
     }
-    printf("Using API base: %s\n", apiBase.String());
 
+    // Validate API key
     if (apiKey.IsEmpty()) {
-        // Notify about missing API key
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
         errorMsg.AddString("content", "Error: Please set an Anthropic API key in settings.");
         messenger->SendMessage(&errorMsg);
         return;
     }
 
+    // Use default API base if not set
     if (apiBase.IsEmpty()) {
         apiBase = fApiBase;
     }
 
+    // Use default model if not set
     if (model.IsEmpty()) {
-        model = "claude-3-haiku-20240307";  // Default model
+        model = "claude-3-7-sonnet-latest";
     }
 
     // Prepare thread data
@@ -144,14 +143,12 @@ void AnthropicProvider::SendMessage(const BObjectList<ChatMessage, true>& histor
 
     // Start request thread
     fRequestThread = spawn_thread(_RequestThreadFunc, "Anthropic Request",
-                                 B_NORMAL_PRIORITY, threadData);
+                               B_NORMAL_PRIORITY, threadData);
 
     if (fRequestThread >= 0) {
         resume_thread(fRequestThread);
     } else {
-        // Thread creation failed
         delete threadData;
-
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
         errorMsg.AddString("content", "Error: Failed to create request thread.");
         messenger->SendMessage(&errorMsg);
@@ -162,11 +159,8 @@ void AnthropicProvider::CancelRequest()
 {
     if (fRequestThread >= 0) {
         fCancelRequested = true;
-
-        // Wait for thread to terminate
         status_t result;
         wait_for_thread(fRequestThread, &result);
-
         fRequestThread = -1;
     }
 }
@@ -174,26 +168,33 @@ void AnthropicProvider::CancelRequest()
 int32 AnthropicProvider::_RequestThreadFunc(void* data)
 {
     RequestThreadData* threadData = static_cast<RequestThreadData*>(data);
-
-    // Convenience aliases
-    const BString& apiKey = threadData->apiKey;
-    const BString& apiBase = threadData->apiBase;
-    const BString& model = threadData->model;
     BMessenger* messenger = threadData->messenger;
     bool* cancelFlag = threadData->cancelFlag;
-
-    // Prepare request body
-    using json = nlohmann::json;
+    
+    // Create temporary file for the response
+    BPath tempPath;
+    find_directory(B_SYSTEM_TEMP_DIRECTORY, &tempPath);
+    tempPath.Append("otto_response.json");
+    
+    // Build the JSON request body
     json requestBody;
-    requestBody["model"] = model.String();
+    requestBody["model"] = threadData->model.String();
     requestBody["messages"] = json::array();
-
-    // Add history messages
+    
+    // Variable to store system message if found
+    BString systemMessage;
+    
+    // Process history messages
     for (int32 i = 0; i < threadData->history.CountItems(); i++) {
         ChatMessage* msg = threadData->history.ItemAt(i);
-
+        
+        // Extract system message separately
+        if (msg->Role() == MESSAGE_ROLE_SYSTEM) {
+            systemMessage = msg->Content();
+            continue;
+        }
+        
         json messageObj;
-
         switch (msg->Role()) {
             case MESSAGE_ROLE_USER:
                 messageObj["role"] = "user";
@@ -201,27 +202,30 @@ int32 AnthropicProvider::_RequestThreadFunc(void* data)
             case MESSAGE_ROLE_ASSISTANT:
                 messageObj["role"] = "assistant";
                 break;
-            case MESSAGE_ROLE_SYSTEM:
-                messageObj["role"] = "system";
-                break;
         }
-
+        
         messageObj["content"] = msg->Content().String();
         requestBody["messages"].push_back(messageObj);
     }
-
+    
+    // Add the new user message
+    json userMsg;
+    userMsg["role"] = "user";
+    userMsg["content"] = threadData->message.String();
+    requestBody["messages"].push_back(userMsg);
+    
+    // Add system message if found
+    if (!systemMessage.IsEmpty()) {
+        requestBody["system"] = systemMessage.String();
+    }
+    
     // Set additional parameters
     requestBody["temperature"] = 0.7;
     requestBody["max_tokens"] = 1000;
-
+    
     // Convert JSON to string
     std::string requestBodyStr = requestBody.dump();
-
-    // Create a temporary file for the response
-    BPath tempPath;
-    find_directory(B_SYSTEM_TEMP_DIRECTORY, &tempPath);
-    tempPath.Append("otto_response.json");
-
+    
     // Sanitize the request body for command line usage
     std::string sanitizedRequest = requestBodyStr;
     // Replace single quotes with escaped single quotes for shell command
@@ -230,40 +234,35 @@ int32 AnthropicProvider::_RequestThreadFunc(void* data)
         sanitizedRequest.replace(pos, 1, "'\\''");
         pos += 4; // Move past the replacement
     }
-
+    
     // Build the curl command
     BString curlCmd;
     curlCmd << "curl -s -X POST ";
     curlCmd << "-H \"Content-Type: application/json\" ";
-    curlCmd << "-H \"x-api-key: " << apiKey << "\" ";
+    curlCmd << "-H \"x-api-key: " << threadData->apiKey << "\" ";
     curlCmd << "-H \"anthropic-version: 2023-06-01\" ";
     curlCmd << "-d '" << sanitizedRequest.c_str() << "' ";
-    curlCmd << "\"" << apiBase << "/messages\" ";
+    curlCmd << "\"" << threadData->apiBase << "/messages\" ";
     curlCmd << "> " << tempPath.Path();
-
-    // Print debug info
-    printf("Executing curl command:\n%s\n", curlCmd.String());
-    printf("API Base: %s, Model: %s\n", apiBase.String(), model.String());
-
+    
     // Execute the command
     int result = system(curlCmd.String());
     if (result != 0) {
-        printf("Error executing curl command: %d\n", result);
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
         errorMsg.AddString("content", BString("Error: Failed to execute API request. Check that curl is installed."));
         messenger->SendMessage(&errorMsg);
-        return -1;
+        return B_ERROR;
     }
-
+    
     // Read the response from the temp file
     BFile responseFile(tempPath.Path(), B_READ_ONLY);
     if (responseFile.InitCheck() != B_OK) {
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
         errorMsg.AddString("content", "Error: Failed to read API response");
         messenger->SendMessage(&errorMsg);
-        return -1;
+        return B_ERROR;
     }
-
+    
     // Get file size
     off_t fileSize;
     responseFile.GetSize(&fileSize);
@@ -271,72 +270,96 @@ int32 AnthropicProvider::_RequestThreadFunc(void* data)
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
         errorMsg.AddString("content", "Error: Empty response from API");
         messenger->SendMessage(&errorMsg);
-        return -1;
+        return B_ERROR;
     }
-    printf("Response file size: %lld bytes\n", fileSize);
-
+    
     // Read content
     char* buffer = new char[fileSize + 1];
     responseFile.Read(buffer, fileSize);
     buffer[fileSize] = '\0';
-
+    
     // Parse response
     try {
         std::string responseStr(buffer);
         json responseJson = json::parse(responseStr);
-
+        
         BString completionText;
         int32 inputTokens = 0, outputTokens = 0;
-
-        printf("Successfully parsed JSON response\n");
-
-        // Extract completion text and token usage
+        
+        // In a successful response:
+        // - "content" is an array of objects
+        // - We need the "text" field from the first object with "type":"text"
         if (responseJson.contains("content") &&
-            !responseJson["content"].empty() &&
-            responseJson["content"][0].contains("text")) {
-            printf("Found content in response\n");
-
-            completionText = responseJson["content"][0]["text"].get<std::string>().c_str();
-            printf("Completion text length: %ld\n", completionText.Length());
-
-            if (responseJson.contains("usage")) {
-                inputTokens = responseJson["usage"]["input_tokens"].get<int>();
-                outputTokens = responseJson["usage"]["output_tokens"].get<int>();
+            responseJson["content"].is_array() &&
+            !responseJson["content"].empty()) {
+            
+            // Extract text from the first content item of type "text"
+            for (const auto& contentItem : responseJson["content"]) {
+                if (contentItem.contains("type") &&
+                    contentItem["type"] == "text" &&
+                    contentItem.contains("text")) {
+                    
+                    completionText = contentItem["text"].get<std::string>().c_str();
+                    break;
+                }
             }
-            printf("Tokens - Input: %d, Output: %d\n", inputTokens, outputTokens);
-
-            // Send response
-            BMessage responseMsg(MSG_MESSAGE_RECEIVED);
-            responseMsg.AddString("content", completionText);
-            responseMsg.AddInt32("input_tokens", inputTokens);
-            responseMsg.AddInt32("output_tokens", outputTokens);
-            messenger->SendMessage(&responseMsg);
-            printf("Response message sent via messenger\n");
+            
+            // Extract token usage information
+            if (responseJson.contains("usage")) {
+                if (responseJson["usage"].contains("input_tokens")) {
+                    inputTokens = responseJson["usage"]["input_tokens"].get<int>();
+                }
+                
+                if (responseJson["usage"].contains("output_tokens")) {
+                    outputTokens = responseJson["usage"]["output_tokens"].get<int>();
+                }
+            }
+            
+            // If we found text, send the response
+            if (completionText.Length() > 0) {
+                BMessage responseMsg(MSG_MESSAGE_RECEIVED);
+                responseMsg.AddString("content", completionText);
+                responseMsg.AddInt32("input_tokens", inputTokens);
+                responseMsg.AddInt32("output_tokens", outputTokens);
+                
+                if (messenger->IsValid()) {
+                    messenger->SendMessage(&responseMsg);
+                }
+            } else {
+                BMessage errorMsg(MSG_MESSAGE_RECEIVED);
+                errorMsg.AddString("content", "Error: No text content found in the API response.");
+                messenger->SendMessage(&errorMsg);
+            }
+        }
+        else if (responseJson.contains("error")) {
+            // Handle API error response
+            BString errorMessage = "API Error: ";
+            if (responseJson["error"].contains("message")) {
+                errorMessage << responseJson["error"]["message"].get<std::string>().c_str();
+            } else {
+                errorMessage << "Unknown error occurred";
+            }
+            
+            BMessage errorMsg(MSG_MESSAGE_RECEIVED);
+            errorMsg.AddString("content", errorMessage);
+            messenger->SendMessage(&errorMsg);
         }
         else {
-            printf("Content structure not found in response\n");
-            printf("Raw response: %s\n", buffer);
-
-            // Send an error message to the UI
+            // Unexpected response format
             BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-            errorMsg.AddString("content", "Error: Unexpected API response format. Check console for details.");
+            errorMsg.AddString("content", "Error: Unexpected API response format.");
             messenger->SendMessage(&errorMsg);
         }
     } catch (const std::exception& e) {
         BMessage errorMsg(MSG_MESSAGE_RECEIVED);
-
-        // Print the raw response for debugging
-        printf("JSON parsing error: %s\n", e.what());
-        printf("Raw response: %s\n", buffer);
+        errorMsg.AddString("content", BString("JSON parsing error: ") << e.what());
         messenger->SendMessage(&errorMsg);
     }
-
-    // Delete buffer
+    
+    // Delete buffer and remove temp file
     delete[] buffer;
-
-    // Optionally remove the temporary file
     BEntry tempEntry(tempPath.Path());
     tempEntry.Remove();
-
-    return 0;
+    
+    return B_OK;
 }

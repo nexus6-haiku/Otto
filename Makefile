@@ -28,7 +28,7 @@ RDEFS = \
 
 RSRCS =
 
-LIBS = be translation netservices2 bnetapi textencoding localestub shared $(STDCPPLIBS)
+LIBS = be translation netservices2 bnetapi textencoding localestub shared litehtml $(STDCPPLIBS)
 
 LIBPATHS =
 
@@ -37,7 +37,8 @@ SYSTEM_INCLUDE_PATHS =  /boot/system/develop/headers/os \
  /boot/system/develop/headers/posix \
  /boot/system/develop/headers/private/support \
  /boot/system/develop/headers/private/shared \
- /boot/system/develop/headers/private/netservices2
+ /boot/system/develop/headers/private/netservices2 \
+ /boot/system/develop/headers/litehtml
 
 LOCAL_INCLUDE_PATHS = src src/external
 OPTIMIZE := NONE

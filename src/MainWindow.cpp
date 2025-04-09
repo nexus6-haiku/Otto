@@ -14,8 +14,8 @@
 #define B_TRANSLATION_CONTEXT "MainWindow"
 
 MainWindow::MainWindow()
-    : BWindow(BRect(100, 100, 900, 700), B_TRANSLATE("Otto"), B_TITLED_WINDOW,
-        B_AUTO_UPDATE_SIZE_LIMITS)
+    : BWindow(BRect(100, 100, 700, 900), B_TRANSLATE("Otto"), B_TITLED_WINDOW,
+        B_ASYNCHRONOUS_CONTROLS | B_QUIT_ON_WINDOW_CLOSE)
 {
     _BuildMenu();
     _InitLayout();
@@ -93,7 +93,8 @@ void MainWindow::_InitLayout()
             .Add(fChatView)
             .SetInsets(B_USE_DEFAULT_SPACING)
             .End()
-        .End();
+		.AddGlue()
+	.End();
 }
 
 void MainWindow::MessageReceived(BMessage* message)
